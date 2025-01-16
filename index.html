@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Call App</title>
+  <style>
+    /* Container Styles */
+    body {
+      font-family: 'Arial', sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f4f4f9;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      flex-direction: column;
+    }
+
+    .container {
+      text-align: center;
+      background-color: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      width: 90%;
+      max-width: 800px;
+    }
+
+    h1 {
+      font-size: 24px;
+      margin-bottom: 20px;
+      color: #333;
+    }
+
+    #video-container {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin-top: 20px;
+    }
+
+    video {
+      width: 100%;
+      max-width: 400px;
+      height: auto;
+      border: 2px solid #ddd;
+      background-color: #000;
+      border-radius: 8px;
+    }
+
+    input, button {
+      padding: 10px;
+      font-size: 16px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      margin-top: 20px;
+      width: 80%;
+      max-width: 400px;
+    }
+
+    button:hover {
+      background-color: #28a745;
+      color: white;
+      cursor: pointer;
+    }
+
+    #loading {
+      display: none;
+      font-size: 18px;
+      color: #555;
+      margin-top: 20px;
+    }
+
+    #exit-call-btn {
+      background-color: #e74c3c;
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      margin-top: 20px;
+      border-radius: 5px;
+      display: none;
+    }
+
+    #exit-call-btn:hover {
+      background-color: #c0392b;
+      cursor: pointer;
+    }
+
+    .control-btns {
+      margin-top: 20px;
+    }
+
+    .control-btns button {
+      padding: 8px 15px;
+      margin: 0 10px;
+      border-radius: 5px;
+      background-color: #3498db;
+      color: white;
+    }
+
+    .control-btns button:hover {
+      background-color: #2980b9;
+    }
+
+    @media (max-width: 600px) {
+      video {
+        width: 90%;
+        max-width: none;
+      }
+
+      .container {
+        padding: 15px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>Video Call App</h1>
+    
+    <div id="controls">
+      <button id="create-room">Create Room</button>
+      <input id="room-link" readonly placeholder="Room link will appear here" />
+      <p id="join-info">Share this link with a friend to join the room.</p>
+    </div>
+
+    <div id="join-box" class="join-box">
+      <h2>Join Room</h2>
+      <input id="join-room-link" placeholder="Paste room link here" />
+      <button id="join-room-btn">Join Room</button>
+    </div>
+
+    <p id="loading" class="loading">Loading...</p>
+
+    <div id="video-container" style="display:none;">
+      <video id="local-video" autoplay muted></video>
+      <video id="remote-video" autoplay></video>
+    </div>
+
+    <button id="exit-call-btn">Exit Call</button>
+
+    <div class="control-btns" style="display:none;">
+      <button id="mute-btn">Mute</button>
+      <button id="toggle-camera-btn">Turn Off Camera</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.0.0/firebase-app.js";
+    import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/9.0.0/firebase-firestore.js";
+    import { getAnalytics } from "https://www.gstatic.com/firebasejs/9.0.0/firebase-analytics.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAGVGkoY38c0DAhyoZMAE52VhTI1xpH_08",
+      authDomain: "amit-f0a91.firebaseapp.com",
+      projectId: "amit-f0a91",
+      storageBucket: "amit-f0a91.firebasestorage.app",
+      messagingSenderId: "944542556150",
+      appId: "1:944542556150:web:ab3e25dc4b496709bab1d7",
+      measurementId: "G-WE06W3T85Y"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const analytics = getAnalytics(app);
+    const db = getFirestore(app);
+
+    const localVideo = document.getElementById("local-video");
+    const remoteVideo = document.getElementById("remote-video");
+    const createRoomButton = document.getElementById("create-room");
+    const roomLinkInput = document.getElementById("room-link");
+    const joinRoomBtn = document.getElementById("join-room-btn");
+    const joinRoomLinkInput = document.getElementById("join-room-link");
+    const loadingText = document.getElementById("loading");
+    const exitCallBtn = document.getElementById("exit-call-btn");
+    const muteBtn = document.getElementById("mute-btn");
+    const toggleCameraBtn = document.getElementById("toggle-camera-btn");
+    const videoContainer = document.getElementById("video-container");
+    const controlBtns = document.querySelector(".control-btns");
+    const joinBox = document.getElementById("join-box");
+
+    let localStream, peerConnection;
+
+    const servers = {
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    };
+
+    async function setupLocalVideo() {
+      loadingText.style.display = "block";
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localVideo.srcObject = localStream;
+      } catch (err) {
+        alert("Error accessing camera or microphone: " + err);
+      } finally {
+        loadingText.style.display = "none";
+      }
+    }
+
+    async function createRoom() {
+      const roomRef = doc(db, "rooms", generateRoomId());
+      roomLinkInput.value = `${window.location.href}?roomId=${roomRef.id}`;
+      peerConnection = new RTCPeerConnection(servers);
+
+      localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+
+      const roomWithOffer = {
+        offer: {
+          type: offer.type,
+          sdp: offer.sdp,
+        },
+      };
+      await setDoc(roomRef, roomWithOffer);
+
+      onSnapshot(roomRef, async (snapshot) => {
+        const data = snapshot.data();
+        if (data?.answer && !peerConnection.currentRemoteDescription) {
+          const answer = new RTCSessionDescription(data.answer);
+          await peerConnection.setRemoteDescription(answer);
+        }
+      });
+
+      peerConnection.onicecandidate = event => {
+        if (event.candidate) {
+          const candidatesRef = collection(roomRef, "candidates");
+          setDoc(doc(candidatesRef), event.candidate.toJSON());
+        }
+      };
+
+      peerConnection.ontrack = event => {
+        remoteVideo.srcObject = event.streams[0];
+      };
+    }
+
+    async function joinRoom(roomId) {
+      const roomRef = doc(db, "rooms", roomId);
+      const roomSnapshot = await getDoc(roomRef);
+      if (!roomSnapshot.exists()) {
+        alert("Room does not exist!");
+        return;
+      }
+
+      peerConnection = new RTCPeerConnection(servers);
+
+      localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+      const offer = roomSnapshot.data().offer;
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+
+      const roomWithAnswer = {
+        answer: {
+          type: answer.type,
+          sdp: answer.sdp,
+        },
+      };
+      await updateDoc(roomRef, roomWithAnswer);
+
+      const candidatesRef = collection(roomRef, "candidates");
+      onSnapshot(candidatesRef, (snapshot) => {
+        snapshot.docChanges().forEach(async (change) => {
+          if (change.type === "added") {
+            const candidate = new RTCIceCandidate(change.doc.data());
+            await peerConnection.addIceCandidate(candidate);
+          }
+        });
+      });
+
+      peerConnection.ontrack = event => {
+        remoteVideo.srcObject = event.streams[0];
+      };
+    }
+
+    function generateRoomId() {
+      return Math.random().toString(36).substr(2, 9);
+    }
+
+    createRoomButton.addEventListener("click", async () => {
+      await setupLocalVideo();
+      await createRoom();
+      createRoomButton.style.display = "none";
+      joinBox.style.display = "none";
+      videoContainer.style.display = "flex";
+      exitCallBtn.style.display = "block";
+      controlBtns.style.display = "block";
+    });
+
+    joinRoomBtn.addEventListener("click", async () => {
+      const roomId = joinRoomLinkInput.value.split("?roomId=")[1];
+      await setupLocalVideo();
+      await joinRoom(roomId);
+      joinBox.style.display = "none";
+      videoContainer.style.display = "flex";
+      exitCallBtn.style.display = "block";
+      controlBtns.style.display = "block";
+    });
+
+    exitCallBtn.addEventListener("click", () => {
+      peerConnection.close();
+      videoContainer.style.display = "none";
+      exitCallBtn.style.display = "none";
+      controlBtns.style.display = "none";
+      localVideo.srcObject = null;
+      remoteVideo.srcObject = null;
+    });
+
+    muteBtn.addEventListener("click", () => {
+      const audioTrack = localStream.getAudioTracks()[0];
+      audioTrack.enabled = !audioTrack.enabled;
+      muteBtn.textContent = audioTrack.enabled ? "Mute" : "Unmute";
+    });
+
+    toggleCameraBtn.addEventListener("click", () => {
+      const videoTrack = localStream.getVideoTracks()[0];
+      videoTrack.enabled = !videoTrack.enabled;
+      toggleCameraBtn.textContent = videoTrack.enabled ? "Turn Off Camera" : "Turn On Camera";
+    });
+  </script>
+
+</body>
+</html>
